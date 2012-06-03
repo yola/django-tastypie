@@ -1015,13 +1015,6 @@ kwargs.
 ``ModelResource`` includes a full working version specific to Django's
 ``Models``.
 
-``get_resource_list_uri``
--------------------------
-
-.. method:: Resource.get_resource_list_uri(self)
-
-Returns a URL specific to this resource's list endpoint.
-
 ``get_via_uri``
 ---------------
 
