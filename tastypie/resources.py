@@ -285,12 +285,10 @@ class Resource(object):
         """
         The standard URLs this ``Resource`` should respond to.
         """
-        # Due to the way Django parses URLs, ``get_multiple`` won't work without
-        # a trailing slash.
         return [
             url(r"^(?P<resource_name>%s)%s$" % (self._meta.resource_name, trailing_slash()), self.wrap_view('dispatch_list'), name="api_dispatch_list"),
             url(r"^(?P<resource_name>%s)/schema%s$" % (self._meta.resource_name, trailing_slash()), self.wrap_view('get_schema'), name="api_get_schema"),
-            url(r"^(?P<resource_name>%s)/set/(?P<%s_list>\w[\w/;-]*)/$" % (self._meta.resource_name, self._meta.detail_uri_name), self.wrap_view('get_multiple'), name="api_get_multiple"),
+            url(r"^(?P<resource_name>%s)/set/(?P<%s_list>\w[\w/;-]*)%s$" % (self._meta.resource_name, self._meta.detail_uri_name, trailing_slash()), self.wrap_view('get_multiple'), name="api_get_multiple"),
             url(r"^(?P<resource_name>%s)/(?P<%s>\w[\w/-]*)%s$" % (self._meta.resource_name, self._meta.detail_uri_name, trailing_slash()), self.wrap_view('dispatch_detail'), name="api_dispatch_detail"),
         ]
 
@@ -605,6 +603,15 @@ class Resource(object):
         ``Models``.
         """
         return obj_list
+
+    def get_bundle_detail_data(self, bundle):
+        """
+        Convenience method to return the ``detail_uri_name`` attribute off
+        ``bundle.obj``.
+
+        Usually just accesses ``bundle.obj.pk`` by default.
+        """
+        return getattr(bundle.obj, self._meta.detail_uri_name)
 
     # URL-related methods.
 
@@ -1411,7 +1418,11 @@ class Resource(object):
         # we're basically in the same spot as a PUT request. SO the rest of this
         # function is cribbed from put_detail.
         self.alter_deserialized_detail_data(request, original_bundle.data)
-        return self.obj_update(original_bundle, request=request, pk=original_bundle.obj.pk)
+        kwargs = {
+            self._meta.detail_uri_name: self.get_bundle_detail_data(original_bundle),
+            'request': request,
+        }
+        return self.obj_update(original_bundle, **kwargs)
 
     def get_schema(self, request, **kwargs):
         """
@@ -1887,7 +1898,7 @@ class ModelResource(Resource):
         """
         A ORM-specific implementation of ``obj_update``.
         """
-        if not bundle.obj or not bundle.obj.pk:
+        if not bundle.obj or not self.get_bundle_detail_data(bundle):
             # Attempt to hydrate data from kwargs before doing a lookup for the object.
             # This step is needed so certain values (like datetime) will pass model validation.
             try:
@@ -1897,7 +1908,7 @@ class ModelResource(Resource):
                 lookup_kwargs = kwargs.copy()
 
                 for key in kwargs.keys():
-                    if key == 'pk':
+                    if key == self._meta.detail_uri_name:
                         continue
                     elif getattr(bundle.obj, key, NOT_AVAILABLE) is not NOT_AVAILABLE:
                         lookup_kwargs[key] = getattr(bundle.obj, key)
@@ -1982,7 +1993,7 @@ class ModelResource(Resource):
         bundles.
         """
         for bundle in bundles:
-            if bundle.obj and getattr(bundle.obj, 'pk', None):
+            if bundle.obj and self.get_bundle_detail_data(bundle):
                 bundle.obj.delete()
 
     def save_related(self, bundle):
@@ -2019,8 +2030,9 @@ class ModelResource(Resource):
             # Because sometimes it's ``None`` & that's OK.
             if related_obj:
                 if field_object.related_name:
-                    if not bundle.obj.pk:
+                    if not self.get_bundle_detail_data(bundle):
                         bundle.obj.save()
+
                     setattr(related_obj, field_object.related_name, bundle.obj)
 
                 related_obj.save()
@@ -2071,9 +2083,9 @@ class ModelResource(Resource):
         kwargs = {}
 
         if isinstance(bundle_or_obj, Bundle):
-            kwargs[self._meta.detail_uri_name] = bundle_or_obj.obj.pk
+            kwargs[self._meta.detail_uri_name] = getattr(bundle_or_obj.obj, self._meta.detail_uri_name)
         else:
-            kwargs[self._meta.detail_uri_name] = bundle_or_obj.id
+            kwargs[self._meta.detail_uri_name] = getattr(bundle_or_obj, self._meta.detail_uri_name)
 
         return kwargs
 
